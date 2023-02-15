@@ -228,8 +228,8 @@ def collect(arguments):
         default_region = "us-gov-west-1"
     elif "cn-" in default_region:
         default_region = "cn-north-1"
-    else:
-        default_region = "us-east-1"
+    #else:
+    #    default_region = "us-east-1"
 
     regions_filter = None
     if len(arguments.regions_filter) > 0:

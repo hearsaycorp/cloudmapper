@@ -1,0 +1,8 @@
+#!/bin/bash
+
+export AWS_REGION="us-west-2"
+aws configure --profile prod --region us-west-2 --output json
+
+python cloudmapper.py collect --account prod --regions us-west-2 --clean
+python cloudmapper.py stats --accounts prod --stats_all_resources --no_output_image > prod-stats-$( printf '%(%Y%m%d)T\n' -1 ).txt
+aws s3 cp prod-stats-$( printf '%(%Y%m%d)T\n' -1 ).txt s3://$S3_BUCKET/$S3_BUCKET_CLOUDMAPPER_LOG_FOLDER

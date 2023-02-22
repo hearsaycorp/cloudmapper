@@ -1,8 +1,28 @@
 #!/bin/bash
 
+# Create the entire file via echo or create it beforehand?
 export AWS_REGION="us-west-2"
-aws configure --profile prod --region us-west-2 --output json
+export AWS_CONFIG_FILE=aws-config
+echo "[profile prod]" >> aws-config
+echo "region=us-west-2" >> caws-onfig
+echo "output=json" >> aws-config
+echo "credential_source=EcsContainer" >> aws-config
+echo "role_arn=$CLOUDMAPPER_PROD_ROLE_ARN" >> aws-config
+# aws configure \
+#     --profile sre-ops \
+#     --region us-west-2 \
+#     --output json
 
-python cloudmapper.py collect --account prod --regions us-west-2 --clean
-python cloudmapper.py stats --accounts prod --stats_all_resources --no_output_image > prod-stats-$( printf '%(%Y%m%d)T\n' -1 ).txt
+cat aws-config
+
+python cloudmapper.py collect \
+    --account prod \
+    --profile prod \
+    --regions us-west-2 \
+    --clean
+python cloudmapper.py stats \
+    --accounts prod \
+    --stats_all_resources \
+    --no_output_image \
+    > prod-stats-$( printf '%(%Y%m%d)T\n' -1 ).txt
 aws s3 cp prod-stats-$( printf '%(%Y%m%d)T\n' -1 ).txt s3://$S3_BUCKET/$S3_BUCKET_CLOUDMAPPER_LOG_FOLDER

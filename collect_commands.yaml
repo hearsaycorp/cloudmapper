@@ -175,6 +175,9 @@
   Request: describe-cluster-subnet-groups
 - Service: sqs
   Request: list-queues
+  Parameters:
+  - Name: MaxResults
+    Value: 1000
 - Service: sqs
   Request: get-queue-attributes
   Parameters:

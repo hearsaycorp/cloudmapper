@@ -229,6 +229,13 @@ def parse_arguments(arguments, parser=None):
         required=False,
         type=str,
     )
+    parser.add_argument(
+        "--profile",
+        help="AWS CLI profile to use",
+        default=None,
+        required=False,
+        type=str,
+    )
     args = parser.parse_args(arguments)
 
     global LOG_LEVEL

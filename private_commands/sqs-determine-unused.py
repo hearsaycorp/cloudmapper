@@ -9,7 +9,7 @@ from datetime import datetime, timedelta
 from shared.common import query_aws, get_regions, parse_arguments, get_parameter_file, custom_serializer
 from shared.nodes import Account, Region
 
-def make_directory(path):
+def make_directory(path: str) -> None:
     try:
         os.mkdir(path)
     except OSError:
@@ -17,11 +17,11 @@ def make_directory(path):
         pass
 
 
-def snakecase(s):
+def snakecase(s: str) -> str:
     return s.replace("-", "_")
 
 
-def fetch_queue_metrics(client, request_parameters, queue_name, queue_attributes_obj):
+def fetch_queue_metrics(client: boto3.Session.client, request_parameters: dict, queue_name: str, queue_attributes_obj: dict) -> dict:
     request_parameters['MetricDataQueries'][0]['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
     response = client.get_metric_data(**request_parameters)
     queue_attributes_obj['Attributes']['MessagesReceivedInLastMonth'] = sum(response['MetricDataResults'][0]['Values'])
@@ -29,7 +29,7 @@ def fetch_queue_metrics(client, request_parameters, queue_name, queue_attributes
     return queue_attributes_obj
 
 
-def fetch_queue_tags(client, queue_url, queue_attributes_obj):
+def fetch_queue_tags(client: boto3.Session.client, queue_url: str, queue_attributes_obj: dict) -> dict:
     queue_tags = client.list_queue_tags(QueueUrl=queue_url)
     if 'Tags' in queue_tags:
         queue_attributes_obj['Attributes']['Tags'] = queue_tags['Tags']
@@ -37,7 +37,7 @@ def fetch_queue_tags(client, queue_url, queue_attributes_obj):
     return queue_attributes_obj
 
 
-def set_unused_flag(queue_attributes_obj):
+def set_unused_flag(queue_attributes_obj: dict) -> dict:
     creation_time = int(queue_attributes_obj['Attributes']['CreatedTimestamp'])
     created_recently = datetime.utcnow() - timedelta(weeks=4) < datetime.fromtimestamp(creation_time)
 
@@ -49,7 +49,7 @@ def set_unused_flag(queue_attributes_obj):
     return queue_attributes_obj
 
 
-def save_sqs_attributes_file(profile_name, region_name, queue_url, queue_attributes_obj):
+def save_sqs_attributes_file(profile_name: str, region_name: str, queue_url: str, queue_attributes_obj: dict) -> None:
     sqs_attributes_filepath = "account-data/{}/{}/{}-{}".format(
         profile_name, region_name, "sqs", "get-queue-attributes"
     )
@@ -65,7 +65,7 @@ def save_sqs_attributes_file(profile_name, region_name, queue_url, queue_attribu
     return
 
 
-def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
+def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict) -> None:
     logging.getLogger("botocore").setLevel(logging.WARN)
 
     default_region = os.environ.get("AWS_REGION", "us-east-1")
@@ -138,7 +138,8 @@ def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
             if 'QueueUrls' not in saved_sqs_list:
                 continue
 
-            queue_url = saved_sqs_list['QueueUrls'][1]
+            print(f"Queue Count: {len(saved_sqs_list['QueueUrls'])}")
+            queue_url = saved_sqs_list['QueueUrls'][2]
             saved_sqs_details = get_parameter_file(region, "sqs", "get-queue-attributes", queue_url)
             queue_name = saved_sqs_details['Attributes']['QueueArn'].split(':')[-1]
             #print(f"Queue Name: {queue_name}")
@@ -151,7 +152,7 @@ def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
     return
 
 
-def run(arguments):
+def run(arguments: list) -> None:
 
     args, accounts, config = parse_arguments(arguments)
     get_sqs_queue_metrics_and_tags(args, accounts, config)

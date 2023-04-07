@@ -16,8 +16,54 @@ def make_directory(path):
         # Already exists
         pass
 
+
 def snakecase(s):
     return s.replace("-", "_")
+
+
+def fetch_queue_metrics(client, request_parameters, queue_name, queue_attributes_obj):
+    request_parameters['MetricDataQueries'][0]['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
+    response = client.get_metric_data(**request_parameters)
+    queue_attributes_obj['Attributes']['MessagesReceivedInLastMonth'] = sum(response['MetricDataResults'][0]['Values'])
+
+    return queue_attributes_obj
+
+
+def fetch_queue_tags(client, queue_url, queue_attributes_obj):
+    queue_tags = client.list_queue_tags(QueueUrl=queue_url)
+    if 'Tags' in queue_tags:
+        queue_attributes_obj['Attributes']['Tags'] = queue_tags['Tags']
+
+    return queue_attributes_obj
+
+
+def set_unused_flag(queue_attributes_obj):
+    creation_time = int(queue_attributes_obj['Attributes']['CreatedTimestamp'])
+    created_recently = datetime.utcnow() - timedelta(weeks=4) < datetime.fromtimestamp(creation_time)
+
+    if int(queue_attributes_obj['Attributes']['MessagesReceivedInLastMonth']) == 0 and not created_recently:
+        queue_attributes_obj['Attributes']['Unused'] = True
+    else:
+        queue_attributes_obj['Attributes']['Unused'] = False
+
+    return queue_attributes_obj
+
+
+def save_sqs_attributes_file(profile_name, region_name, queue_url, queue_attributes_obj):
+    sqs_attributes_filepath = "account-data/{}/{}/{}-{}".format(
+        profile_name, region_name, "sqs", "get-queue-attributes"
+    )
+    filename = get_filename_from_parameter(queue_url)
+    sqs_attributes_file = "{}/{}".format(sqs_attributes_filepath, filename)
+    print(f"Output File: {sqs_attributes_file}")
+    if queue_attributes_obj is not None:
+        with open(sqs_attributes_file, "w+") as f:
+            f.write(
+                json.dumps(queue_attributes_obj, indent=4, sort_keys=True, default=custom_serializer)
+            )
+
+    return
+
 
 def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
     logging.getLogger("botocore").setLevel(logging.WARN)
@@ -59,7 +105,7 @@ def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
 
     sqs = session.client('sqs')
     client = session.client('cloudwatch')
-    parameters = {
+    base_parameters = {
         'MetricDataQueries': [{
             'Id': 'id_0',
             'MetricStat': {
@@ -88,36 +134,21 @@ def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
             print(f"Region: {region.name}")
 
             saved_sqs_list = query_aws(region.account, "sqs-list-queues", region=region)
-            sqs_attributes_filepath = "account-data/{}/{}/{}-{}".format(
-                arguments.profile, region.name, "sqs", "get-queue-attributes"
-            )
 
-            if 'QueueUrls' in saved_sqs_list:
-                queue_url = saved_sqs_list['QueueUrls'][1]
-                saved_sqs_details = get_parameter_file(region, "sqs", "get-queue-attributes", queue_url)
+            if 'QueueUrls' not in saved_sqs_list:
+                continue
 
-                queue_name = saved_sqs_details['Attributes']['QueueArn'].split(':')[-1]
-                print(f"Queue Name: {queue_name}")
+            queue_url = saved_sqs_list['QueueUrls'][1]
+            saved_sqs_details = get_parameter_file(region, "sqs", "get-queue-attributes", queue_url)
+            queue_name = saved_sqs_details['Attributes']['QueueArn'].split(':')[-1]
+            #print(f"Queue Name: {queue_name}")
 
-                parameters['MetricDataQueries'][0]['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
-                response = client.get_metric_data(**parameters)
-                messages_received = sum(response['MetricDataResults'][0]['Values'])
-                print('Messages Received in Last Month: ', messages_received)
-                saved_sqs_details['Attributes']['MessagesReceivedInLastMonth'] = messages_received
+            saved_sqs_details = fetch_queue_metrics(client, base_parameters, queue_name, saved_sqs_details)
+            saved_sqs_details = fetch_queue_tags(sqs, queue_url, saved_sqs_details)
+            saved_sqs_details = set_unused_flag(saved_sqs_details)
+            save_sqs_attributes_file(arguments.profile, region.name, queue_url, saved_sqs_details)
 
-                queue_tags = sqs.list_queue_tags(QueueUrl=queue_url)
-                if 'Tags' in queue_tags:
-                    saved_sqs_details['Attributes']['Tags'] = queue_tags['Tags']
-
-                filename = get_filename_from_parameter(queue_url)
-                sqs_attributes_file = "{}/{}".format(sqs_attributes_filepath, filename)
-                print(f"Output File: {sqs_attributes_file}")
-                if saved_sqs_details is not None:
-                    with open(sqs_attributes_file, "w+") as f:
-                        f.write(
-                            json.dumps(saved_sqs_details, indent=4, sort_keys=True, default=custom_serializer)
-                        )
-
+    return
 
 
 def run(arguments):

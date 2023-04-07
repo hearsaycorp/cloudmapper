@@ -1,12 +1,11 @@
-import argparse
 import boto3
 import json
 import logging
 import os
 
-from botocore.exceptions import ClientError, EndpointConnectionError, NoCredentialsError
+from botocore.exceptions import ClientError
 from commands.collect import get_filename_from_parameter
-from datetime import datetime, date, timedelta
+from datetime import datetime, timedelta
 from shared.common import query_aws, get_regions, parse_arguments, get_parameter_file, custom_serializer
 from shared.nodes import Account, Region
 
@@ -20,9 +19,8 @@ def make_directory(path):
 def snakecase(s):
     return s.replace("-", "_")
 
-def get_sqs_queue_metrics(arguments, accounts, config):
+def get_sqs_queue_metrics_and_tags(arguments, accounts, config):
     logging.getLogger("botocore").setLevel(logging.WARN)
-    sqs_queue_list_file = "account-data/prod/us-west-2/sqs-list-queues.json"
 
     default_region = os.environ.get("AWS_REGION", "us-east-1")
     # regions_filter = None
@@ -84,6 +82,7 @@ def get_sqs_queue_metrics(arguments, accounts, config):
     }
 
     for account in accounts:
+        # get_regions reads the file at account-data/{profile}/describe-regions.json
         for region_json in get_regions(Account(None, account)):
             region = Region(Account(None, account), region_json)
             print(f"Region: {region.name}")
@@ -97,7 +96,6 @@ def get_sqs_queue_metrics(arguments, accounts, config):
                 queue_url = saved_sqs_list['QueueUrls'][1]
                 saved_sqs_details = get_parameter_file(region, "sqs", "get-queue-attributes", queue_url)
 
-                queue_arn = saved_sqs_details['Attributes']['QueueArn']
                 queue_name = saved_sqs_details['Attributes']['QueueArn'].split(':')[-1]
                 print(f"Queue Name: {queue_name}")
 
@@ -125,4 +123,4 @@ def get_sqs_queue_metrics(arguments, accounts, config):
 def run(arguments):
 
     args, accounts, config = parse_arguments(arguments)
-    get_sqs_queue_metrics(args, accounts, config)
+    get_sqs_queue_metrics_and_tags(args, accounts, config)

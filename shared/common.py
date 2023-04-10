@@ -236,6 +236,13 @@ def parse_arguments(arguments, parser=None):
         required=False,
         type=str,
     )
+    parser.add_argument(
+        "--dry_run",
+        help="Do not run AWS commands",
+        default=False,
+        required=False,
+        type=bool
+    )
     args = parser.parse_args(arguments)
 
     global LOG_LEVEL

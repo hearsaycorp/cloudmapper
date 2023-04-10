@@ -8,8 +8,9 @@ import copy
 from botocore.exceptions import ClientError
 from commands.collect import get_filename_from_parameter
 from datetime import datetime, timedelta
-from shared.common import query_aws, get_regions, parse_arguments, get_parameter_file, custom_serializer
+from shared.common import get_regions, parse_arguments, custom_serializer
 from shared.nodes import Account, Region
+from shared.query import query_aws, get_parameter_file
 
 def make_directory(path: str) -> None:
     try:

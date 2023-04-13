@@ -108,3 +108,6 @@ def run(arguments: list) -> None:
             if not args.dry_run:
                 delete_queues(sqs, unused_queues)
                 clean_up_deleted_queue_files(unused_queues, saved_sqs_list, account['name'], args.profile, region.name)
+            else:
+                print("This operation would delete the following SQS queues:")
+                print(unused_queues)

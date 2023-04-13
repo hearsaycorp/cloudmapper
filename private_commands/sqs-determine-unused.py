@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import re
-import copy
 
 from botocore.exceptions import ClientError
 from commands.collect import get_filename_from_parameter
@@ -24,31 +23,56 @@ def snakecase(s: str) -> str:
     return s.replace("-", "_")
 
 
-def fetch_queue_metrics(client: boto3.Session.client, base_parameters: dict, inner_base_parameters: dict, queue_names: list, queue_attributes_objs: list) -> list:
+def fetch_queue_metrics(client: boto3.Session.client, base_parameters: dict, inner_base_parameters: dict, metrics_to_fetch: list, queue_names: list, queue_attributes_objs: list) -> list:
     print(f'Fetching metrics for {len(queue_names)} queues')
     if len(base_parameters['MetricDataQueries']) > 0:
         base_parameters['MetricDataQueries'] = []
     full_params = base_parameters.copy()
+    print(f'Using Metrics: {metrics_to_fetch}')
 
     for i, queue_name in enumerate(queue_names):
-        single_sub_params = inner_base_parameters.copy()
-        single_sub_params['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
-        single_sub_params['Id'] = f'queue{str(i)}'
-        full_params['MetricDataQueries'].append(single_sub_params)
+        for metric in metrics_to_fetch:
+            single_sub_params = inner_base_parameters.copy()
+            single_sub_params['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
+            single_sub_params['MetricStat']['Metric']['MetricName'] = metric
+            single_sub_params['Id'] = f'queue_{str(i)}_{metric}'
+            full_params['MetricDataQueries'].append(single_sub_params)
 
     response = client.get_metric_data(**full_params)
-    metric_results = [(int(re.sub('[a-z]', '', x['Id'])), sum(x['Values'])) for x in response['MetricDataResults']]
+    metric_results = [(int(x['Id'].split('_')[1]), x['Id'].split('_')[-1], sum(x['Values'])) for x in response['MetricDataResults']]
 
-    # paranoid about things being out of order, so sort by the id
-    metric_results.sort(key = lambda x: x[0])
-    metric_results = [x[1] for x in metric_results]
-
-    if len(metric_results) != len(queue_names) or len(metric_results) != len(queue_attributes_objs):
+    if len(metric_results) != len(queue_names)*len(metrics_to_fetch) or \
+        len(metric_results) != len(queue_attributes_objs)*len(metrics_to_fetch):
         print("Error: Number of metric results don't match queue names or attributes")
         exit(-1)
 
     for i, queue_attributes_obj in enumerate(queue_attributes_objs):
-        queue_attributes_obj['Attributes']['MessagesReceivedInLastMonth'] = metric_results[i]
+        for j, metric in enumerate(metrics_to_fetch):
+            result_idx = len(metrics_to_fetch)*i + j
+            if metric != metric_results[result_idx][1]:
+                print(f"Error: Metric name {metric_results[result_idx][1]} doesn't match expected value {metric}")
+                exit(-1)
+            queue_attributes_obj['Attributes'][metric] = metric_results[result_idx][2]
+
+    return queue_attributes_objs
+
+
+def fetch_ec2_dependencies(client: boto3.Session.client, queue_names: list, queue_attributes_objs: list) -> list:
+    print('Fetching EC2 dependencies')
+    ec2_id_regex = 'i-[a-f0-9]{8}(?:[a-f0-9]{9})?'
+
+    for i, queue_name in enumerate(queue_names):
+        instance_id = re.findall(ec2_id_regex, queue_name)
+        if instance_id:
+            try:
+                ec2_response = client.describe_instance_status(InstanceIds=instance_id, IncludeAllInstances=True)
+                print(ec2_response)
+                queue_attributes_objs[i]['Attributes']['HasEC2Dependency'] = True
+            except ClientError as e:
+                if e.response['Error']['Code'] == 'InvalidInstanceID.NotFound':
+                    queue_attributes_objs[i]['Attributes']['HasEC2Dependency'] = False
+                else:
+                    raise e
 
     return queue_attributes_objs
 
@@ -63,7 +87,7 @@ def fetch_queue_tags(client: boto3.Session.client, queue_urls: list, queue_attri
     return queue_attributes_objs
 
 
-def set_unused_flag(queue_attributes_objs: list) -> list:
+def set_unused_flag(queue_attributes_objs: list, metrics: list) -> list:
     print('Setting the "Unused" flags')
     for queue_attributes_obj in queue_attributes_objs:
         if 'CreatedTimestamp' not in queue_attributes_obj['Attributes']:
@@ -72,10 +96,12 @@ def set_unused_flag(queue_attributes_objs: list) -> list:
         creation_time = int(queue_attributes_obj['Attributes']['CreatedTimestamp'])
         created_recently = datetime.utcnow() - timedelta(weeks=4) < datetime.fromtimestamp(creation_time)
 
-        if int(queue_attributes_obj['Attributes']['MessagesReceivedInLastMonth']) == 0 and not created_recently:
-            queue_attributes_obj['Attributes']['Unused'] = True
-        else:
-            queue_attributes_obj['Attributes']['Unused'] = False
+        unused_list = [int(queue_attributes_obj['Attributes'][metric]) == 0 for metric in metrics]
+        unused_list.append(not created_recently)
+        if 'HasEC2Dependency' in queue_attributes_obj['Attributes']:
+            unused_list.append(not queue_attributes_obj['Attributes']['HasEC2Dependency'])
+
+        queue_attributes_obj['Attributes']['Unused'] = all(unused_list)
 
     return queue_attributes_objs
 
@@ -105,7 +131,7 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
 
     default_region = os.environ.get("AWS_REGION", "us-east-1")
     # regions_filter = None
-    # if len(arguments.regions_filter) > 0:
+    # if len(args.regions_filter) > 0:
     #     regions_filter = arguments.regions_filter.lower().split(",")
     #     # Force include of default region -- seems to be required
     #     if default_region not in regions_filter:
@@ -138,8 +164,7 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
             )
             exit(-1)
 
-    sqs = session.client('sqs')
-    client = session.client('cloudwatch')
+    max_metric_queries = 500
     base_parameters = {
         'MetricDataQueries': [],
         'StartTime': datetime.utcnow() - timedelta(weeks=4),
@@ -150,7 +175,7 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
             'MetricStat': {
                 'Metric': {
                     'Namespace': 'AWS/SQS',
-                    'MetricName': 'NumberOfMessagesReceived',
+                    #'MetricName': 'NumberOfMessagesReceived',
                     'Dimensions': [
                         {
                             'Name': 'QueueName'
@@ -162,11 +187,20 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
             },
             'ReturnData': True,
         }
+    metrics = [
+        'NumberOfEmptyReceives',
+        'NumberOfMessagesSent',
+        'NumberOfMessagesReceived',
+        'NumberOfMessagesDeleted'
+    ]
 
     for account in accounts:
         # get_regions reads the file at account-data/{profile}/describe-regions.json
         for region_json in get_regions(Account(None, account)):
             region = Region(Account(None, account), region_json)
+            sqs = session.client("sqs", region_name=region.name)
+            cloudwatch = session.client('cloudwatch', region_name=region.name)
+            ec2 = session.client('ec2', region_name=region.name)
             print(f"Processing SQS Queues for Region {region.name}")
 
             saved_sqs_list = query_aws(region.account, "sqs-list-queues", region=region)
@@ -177,18 +211,21 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
 
             print(f"Found {len(saved_sqs_list['QueueUrls'])} SQS queues in {region.name}")
 
-            for i in range(len(saved_sqs_list['QueueUrls']) // 500 + 1):
-                end_idx = (i+1)*500
+            for i in range(len(saved_sqs_list['QueueUrls']) * len(metrics) // max_metric_queries + 1):
+
+                start_idx = i*max_metric_queries//len(metrics)
+                end_idx = (i+1)*max_metric_queries//len(metrics)
                 if end_idx > len(saved_sqs_list['QueueUrls']):
                     end_idx = len(saved_sqs_list['QueueUrls'])
-                queue_urls = saved_sqs_list['QueueUrls'][i*500:end_idx]
-                print(f"Processing URLs [{i*500}, {end_idx})")
+                print(f"Processing URLs [{start_idx}, {end_idx})")
+                queue_urls = saved_sqs_list['QueueUrls'][start_idx:end_idx]
                 queue_details = [get_parameter_file(region, "sqs", "get-queue-attributes", queue_url) for queue_url in queue_urls]
                 queue_names = [queue_detail['Attributes']['QueueArn'].split(':')[-1] for queue_detail in queue_details]
 
-                queue_details = fetch_queue_metrics(client, base_parameters, inner_base_params, queue_names, queue_details)
+                queue_details = fetch_queue_metrics(cloudwatch, base_parameters, inner_base_params, metrics, queue_names, queue_details)
                 queue_details = fetch_queue_tags(sqs, queue_urls, queue_details)
-                queue_details = set_unused_flag(queue_details)
+                queue_details = fetch_ec2_dependencies(ec2, queue_urls, queue_details)
+                queue_details = set_unused_flag(queue_details, metrics)
                 save_sqs_attributes_file(arguments.profile, region.name, queue_urls, queue_details)
 
     return

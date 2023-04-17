@@ -219,12 +219,15 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
 
             for i in range(len(saved_sqs_list['QueueUrls']) * len(metrics) // max_metric_queries + 1):
 
-                start_idx = i*max_metric_queries//len(metrics)
-                end_idx = (i+1)*max_metric_queries//len(metrics)
+                start_idx = i*(max_metric_queries//len(metrics))
+                end_idx = (i+1)*(max_metric_queries//len(metrics))
+                if start_idx < 0:
+                    start_idx = 0
                 if end_idx > len(saved_sqs_list['QueueUrls']):
                     end_idx = len(saved_sqs_list['QueueUrls'])
                 print(f"Processing URLs [{start_idx}, {end_idx})")
                 queue_urls = saved_sqs_list['QueueUrls'][start_idx:end_idx]
+
                 queue_details = [get_parameter_file(region, "sqs", "get-queue-attributes", queue_url) for queue_url in queue_urls]
                 queue_names = [queue_detail['Attributes']['QueueArn'].split(':')[-1] for queue_detail in queue_details]
 

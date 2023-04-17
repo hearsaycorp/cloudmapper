@@ -94,7 +94,7 @@ def set_unused_flag(queue_attributes_objs: list, metrics: list) -> list:
             print("Error: CreatedTimestamp not found in queue attributes")
             continue
         creation_time = int(queue_attributes_obj['Attributes']['CreatedTimestamp'])
-        created_recently = datetime.utcnow() - timedelta(weeks=4) < datetime.fromtimestamp(creation_time)
+        created_recently = datetime.utcnow() - timedelta(weeks=13) < datetime.fromtimestamp(creation_time)
 
         unused_list = [int(queue_attributes_obj['Attributes'][metric]) == 0 for metric in metrics]
         unused_list.append(not created_recently)
@@ -167,7 +167,7 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
     max_metric_queries = 500
     base_parameters = {
         'MetricDataQueries': [],
-        'StartTime': datetime.utcnow() - timedelta(weeks=4),
+        'StartTime': datetime.utcnow() - timedelta(weeks=13),
         'EndTime': datetime.utcnow(),
     }
     inner_base_params = {
@@ -188,10 +188,15 @@ def get_sqs_queue_metrics_and_tags(arguments: dict, accounts: list, config: dict
             'ReturnData': True,
         }
     metrics = [
+        'ApproximateAgeOfOldestMessage',
+        'ApproximateNumberOfMessagesDelayed',
+        'ApproximateNumberOfMessagesNotVisible',
+        'ApproximateNumberOfMessagesVisible',
         'NumberOfEmptyReceives',
-        'NumberOfMessagesSent',
+        'NumberOfMessagesDeleted',
         'NumberOfMessagesReceived',
-        'NumberOfMessagesDeleted'
+        'NumberOfMessagesSent',
+        'SentMessageSize'
     ]
 
     for account in accounts:

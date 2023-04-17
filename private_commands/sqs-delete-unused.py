@@ -14,8 +14,8 @@ from shared.query import query_aws, get_parameter_file
 
 def filter_for_unused_queues(queue_urls: list, queue_attributes_objs: list) -> list:
     unused_queues = [queue_url for queue_url, queue_attributes_obj in zip(queue_urls, queue_attributes_objs) \
-                     if queue_attributes_obj['Attributes']['Unused'] and \
-                     ('Tags' not in queue_attributes_obj['Attributes'] or 'EngTeam' not in queue_attributes_obj['Attributes']['Tags'])]
+                     if queue_attributes_obj['Attributes']['Unused']] #and \
+                     #('Tags' not in queue_attributes_obj['Attributes'] or 'EngTeam' not in queue_attributes_obj['Attributes']['Tags'])]
     print(f'Filtered {len(queue_urls)} queues down to {len(unused_queues)} unused queues')
 
     return unused_queues

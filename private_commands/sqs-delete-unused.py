@@ -109,5 +109,9 @@ def run(arguments: list) -> None:
                 delete_queues(sqs, unused_queues)
                 clean_up_deleted_queue_files(unused_queues, saved_sqs_list, account['name'], args.profile, region.name)
             else:
-                print("This operation would delete the following SQS queues:")
-                print(unused_queues)
+                print(f"This operation would delete the following {len(unused_queues)} SQS queues:")
+                print(f"This included {len([queue for queue in unused_queues if 'celery-pidbox' in queue])} celery-pidbox queues.")
+                print(f"Non-celery-pidbox queues are:")
+                for queue in unused_queues:
+                    if 'celery-pidbox' not in queue:
+                        print(queue)

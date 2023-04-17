@@ -1,4 +1,5 @@
 import boto3
+import copy
 import json
 import logging
 import os
@@ -32,7 +33,7 @@ def fetch_queue_metrics(client: boto3.Session.client, base_parameters: dict, inn
 
     for i, queue_name in enumerate(queue_names):
         for metric in metrics_to_fetch:
-            single_sub_params = inner_base_parameters.copy()
+            single_sub_params = copy.deepcopy(inner_base_parameters)
             single_sub_params['MetricStat']['Metric']['Dimensions'][0]['Value'] = queue_name
             single_sub_params['MetricStat']['Metric']['MetricName'] = metric
             single_sub_params['Id'] = f'queue_{str(i)}_{metric}'

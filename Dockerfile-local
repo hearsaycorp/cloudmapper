@@ -1,6 +1,3 @@
-#FROM python:3.7-slim as cloudmapper
-#FROM alpine:3.17.2
-#FROM python:3.7-alpine3.17
 FROM python:3.9-slim as cloudmapper
 
 LABEL maintainer="https://github.com/0xdabbad00/"
@@ -11,8 +8,11 @@ WORKDIR /opt/cloudmapper
 ENV AWS_DEFAULT_REGION=us-east-1 
 
 RUN apt-get update -y
-RUN apt-get install -y build-essential autoconf automake libtool python3-tk jq awscli
-RUN apt-get install -y bash
+RUN apt-get install -y build-essential autoconf automake libtool python3-tk jq groff less
+RUN apt-get install -y bash curl unzip
+RUN curl "https://awscli.amazonaws.com/awscli-exe-linux-x86_64.zip" -o "awscliv2.zip" && \
+    unzip awscliv2.zip 
+RUN ./aws/install
 # RUN apk update && \
 #     apk upgrade && \
 #     apk add --virtual build-dependencies \
@@ -36,5 +36,5 @@ RUN apt-get install -y bash
 COPY . /opt/cloudmapper
 RUN pip install -r requirements.txt
 
-#RUN bash
-ENTRYPOINT "./entrypoint"
+RUN bash
+#ENTRYPOINT "./entrypoint"
